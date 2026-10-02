@@ -6,6 +6,7 @@ require("dotenv").config();
 const productsRouter = require("./routes/products");
 const ordersRouter = require("./routes/orders");
 const usersRouter = require("./routes/users");
+const clientsRouter = require("./routes/clients");
 
 const app = express();
 
@@ -40,6 +41,7 @@ app.get("/", (req, res) => {
 app.use("/products", productsRouter);
 app.use("/orders", ordersRouter);
 app.use("/users", usersRouter);
+app.use("/clients", clientsRouter);
 
 app.use((req, res) => {
   res.status(404).send({
