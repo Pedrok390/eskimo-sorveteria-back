@@ -1,6 +1,10 @@
 const router = require("express").Router();
 
-const auth = require("../middlewares/auth");
+const auth =
+  require("../middlewares/auth");
+
+const customerAuth =
+  require("../middlewares/customerAuth");
 
 const {
   createOrder,
@@ -10,13 +14,32 @@ const {
   cancelOrder
 } = require("../controllers/orders");
 
-// Público
+
+// SITE
 router.post(
-  "/",
+  "/online",
+  customerAuth,
+  (req, res, next) => {
+    req.body.channel = "online";
+    next();
+  },
   createOrder
 );
 
-// Funcionário ou owner
+
+// PDV
+router.post(
+  "/store",
+  auth,
+  (req, res, next) => {
+    req.body.channel = "store";
+    next();
+  },
+  createOrder
+);
+
+
+// ADMIN / FUNCIONÁRIOS
 router.get(
   "/",
   auth,
@@ -40,5 +63,6 @@ router.patch(
   auth,
   cancelOrder
 );
+
 
 module.exports = router;

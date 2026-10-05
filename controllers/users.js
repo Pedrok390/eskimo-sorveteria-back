@@ -62,6 +62,7 @@ module.exports.login = async (req, res, next) => {
       res.send({token});
     })
     .catch((e) => {
+      console.log("ERRO LOGIN:", e);
       const err = new Error("Credenciais inválidas");
       err.statusCode = 401;
       return next(err);
