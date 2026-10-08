@@ -1,6 +1,9 @@
 const StoreProduct = require("../models/storeProducts");
+
 const Promotion = require("../models/promotions");
+
 const Store = require("../models/stores");
+
 
 async function calculateCart({
   storeId,
@@ -10,29 +13,61 @@ async function calculateCart({
   surcharge = null,
   deliveryFee = 0
 }) {
-  // =========================
-  // VALIDAÇÕES
-  // =========================
+
+  // =====================================
+  // VALIDAÇÕES BÁSICAS
+  // =====================================
 
   if (!storeId) {
-    throw new Error("Loja é obrigatória");
+    throw new Error(
+      "Loja é obrigatória"
+    );
   }
 
-  if (!Array.isArray(items) || items.length === 0) {
-    throw new Error("Carrinho vazio");
+  if (
+    !Array.isArray(items) ||
+    items.length === 0
+  ) {
+    throw new Error(
+      "Carrinho vazio"
+    );
   }
 
-  if (!["store", "online"].includes(channel)) {
-    throw new Error("Canal de venda inválido");
+  if (
+    !["store", "online"].includes(channel)
+  ) {
+    throw new Error(
+      "Canal de venda inválido"
+    );
   }
 
-  const store = await Store.findById(storeId);
 
-  if (!store || !store.active) {
-    throw new Error("Loja não encontrada ou inativa");
+  // =====================================
+  // LOJA
+  // =====================================
+
+  const store =
+    await Store.findById(storeId);
+
+  if (
+    !store ||
+    !store.active
+  ) {
+    throw new Error(
+      "Loja não encontrada ou inativa"
+    );
   }
 
-  // Ajustes manuais não podem vir do site
+
+  // =====================================
+  // SEGURANÇA DO CANAL ONLINE
+  // =====================================
+
+  /*
+   * Desconto e acréscimo manual
+   * pertencem exclusivamente ao PDV.
+   */
+
   if (
     channel === "online" &&
     (discount || surcharge)
@@ -42,45 +77,63 @@ async function calculateCart({
     );
   }
 
-  // =========================
+
+  // =====================================
   // NORMALIZAR ITENS
-  // =========================
+  // =====================================
 
-  const normalizedItems = items.map((item) => {
-    const quantity = Number(item.quantity);
+  const normalizedItems =
+    items.map((item) => {
 
-    if (
-      !item.productId ||
-      !Number.isInteger(quantity) ||
-      quantity <= 0
-    ) {
-      throw new Error("Item do carrinho inválido");
-    }
+      const quantity =
+        Number(item.quantity);
 
-    return {
-      productId: item.productId.toString(),
-      quantity
-    };
-  });
+      if (
+        !item.productId ||
+        !Number.isInteger(quantity) ||
+        quantity <= 0
+      ) {
+        throw new Error(
+          "Item do carrinho inválido"
+        );
+      }
+
+      return {
+        productId:
+          item.productId.toString(),
+
+        quantity
+      };
+    });
+
+
+  // =====================================
+  // AGRUPAR PRODUTOS REPETIDOS
+  // =====================================
 
   /*
-   * Evita o mesmo produto chegar duas vezes:
+   * Exemplo:
    *
-   * [
-   *   { productId: "A", quantity: 2 },
-   *   { productId: "A", quantity: 3 }
-   * ]
+   * Produto A = 2
+   * Produto A = 3
    *
-   * vira:
+   * passa a ser:
    *
-   * A = 5
+   * Produto A = 5
    */
 
-  const groupedItems = new Map();
+  const groupedItems =
+    new Map();
 
-  for (const item of normalizedItems) {
+  for (
+    const item
+    of normalizedItems
+  ) {
+
     const current =
-      groupedItems.get(item.productId) || 0;
+      groupedItems.get(
+        item.productId
+      ) || 0;
 
     groupedItems.set(
       item.productId,
@@ -88,28 +141,46 @@ async function calculateCart({
     );
   }
 
-  const finalItems = Array.from(
-    groupedItems.entries()
-  ).map(([productId, quantity]) => ({
-    productId,
-    quantity
-  }));
 
-  const productIds = finalItems.map(
-    (item) => item.productId
-  );
+  const finalItems =
+    Array.from(
+      groupedItems.entries()
+    ).map(
+      ([productId, quantity]) => ({
+        productId,
+        quantity
+      })
+    );
 
-  // =========================
-  // STORE PRODUCTS
-  // =========================
 
-  const storeProducts = await StoreProduct.find({
-    store: storeId,
+  const productIds =
+    finalItems.map(
+      (item) =>
+        item.productId
+    );
 
-    product: {
-      $in: productIds
-    }
-  }).populate("product");
+
+  // =====================================
+  // PRODUTOS DA LOJA
+  // =====================================
+
+  const storeProducts =
+    await StoreProduct.find({
+      store: storeId,
+
+      product: {
+        $in: productIds
+      }
+    })
+      .populate("product");
+
+
+  /*
+   * Se mandamos 3 produtos e só
+   * encontramos 2 StoreProducts,
+   * significa que algum produto não
+   * pertence àquela loja.
+   */
 
   if (
     storeProducts.length !==
@@ -120,160 +191,251 @@ async function calculateCart({
     );
   }
 
-  // =========================
+
+  // =====================================
   // MONTAR ITENS
-  // =========================
+  // =====================================
 
-  const calculatedItems = finalItems.map(
-    (item) => {
-      const storeProduct =
-        storeProducts.find(
-          (sp) =>
-            sp.product._id.toString() ===
-            item.productId
-        );
+  const calculatedItems =
+    finalItems.map(
+      (item) => {
 
-      if (!storeProduct.available) {
-        throw new Error(
-          `${storeProduct.product.name} não está disponível`
-        );
+        const storeProduct =
+          storeProducts.find(
+            (sp) =>
+              sp.product._id
+                .toString() ===
+              item.productId
+          );
+
+
+        // -----------------------------
+        // PRODUTO DISPONÍVEL NA LOJA
+        // -----------------------------
+
+        if (
+          !storeProduct.available
+        ) {
+          throw new Error(
+            `${storeProduct.product.name} não está disponível`
+          );
+        }
+
+
+        // -----------------------------
+        // PRODUTO DISPONÍVEL ONLINE
+        // -----------------------------
+
+        if (
+          channel === "online" &&
+          !storeProduct.availableOnline
+        ) {
+          throw new Error(
+            `${storeProduct.product.name} não está disponível no site`
+          );
+        }
+
+
+        // -----------------------------
+        // ESTOQUE
+        // -----------------------------
+
+        /*
+         * Por enquanto apenas validamos.
+         *
+         * A baixa real será feita posteriormente
+         * pelo sistema de StockMovement.
+         */
+
+        if (
+          storeProduct.stock <
+          item.quantity
+        ) {
+          throw new Error(
+            `Estoque insuficiente para ${storeProduct.product.name}`
+          );
+        }
+
+
+        // -----------------------------
+        // ITEM
+        // -----------------------------
+
+        return {
+          product:
+            storeProduct.product._id,
+          storeProduct:
+            storeProduct._id,
+          name:
+            storeProduct.product.name,
+
+          category:
+            storeProduct.product.category,
+
+          quantity:
+            item.quantity,
+
+          originalUnitPrice:
+            Number(
+              storeProduct.price
+            ),
+
+          unitPrice:
+            Number(
+              storeProduct.price
+            ),
+
+          promotion: null,
+
+          subtotal: 0
+        };
       }
+    );
 
-      if (
-        channel === "online" &&
-        !storeProduct.availableOnline
-      ) {
-        throw new Error(
-          `${storeProduct.product.name} não está disponível no site`
-        );
-      }
 
-      /*
-       * Por enquanto validamos estoque aqui.
-       * Depois o PDV offline terá tratamento próprio.
-       */
-      if (
-        storeProduct.stock <
-        item.quantity
-      ) {
-        throw new Error(
-          `Estoque insuficiente para ${storeProduct.product.name}`
-        );
-      }
-
-      return {
-        product:
-          storeProduct.product._id,
-
-        name:
-          storeProduct.product.name,
-
-        category:
-          storeProduct.product.category,
-
-        quantity:
-          item.quantity,
-
-        originalUnitPrice:
-          Number(storeProduct.price),
-
-        unitPrice:
-          Number(storeProduct.price),
-
-        promotion:
-          null
-      };
-    }
-  );
-
-  // =========================
+  // =====================================
   // PROMOÇÕES VÁLIDAS
-  // =========================
+  // =====================================
 
-  const now = new Date();
+  const now =
+    new Date();
 
-  const promotions = await Promotion.find({
-    store: storeId,
 
-    active: true,
+  const promotions =
+    await Promotion.find({
 
-    [`channels.${channel}`]: true,
+      store: storeId,
 
-    $and: [
-      {
-        $or: [
-          { startsAt: null },
-          {
-            startsAt: {
-              $lte: now
+      active: true,
+
+      [`channels.${channel}`]:
+        true,
+
+      $and: [
+
+        // Data inicial
+        {
+          $or: [
+            {
+              startsAt: null
+            },
+            {
+              startsAt: {
+                $lte: now
+              }
             }
-          }
-        ]
-      },
+          ]
+        },
 
-      {
-        $or: [
-          { endsAt: null },
-          {
-            endsAt: {
-              $gte: now
+        // Data final
+        {
+          $or: [
+            {
+              endsAt: null
+            },
+            {
+              endsAt: {
+                $gte: now
+              }
             }
-          }
-        ]
-      }
-    ]
-  });
+          ]
+        }
+      ]
+    });
 
-  // =========================
-  // ENCONTRAR MELHOR PROMOÇÃO
-  // =========================
 
-  for (const item of calculatedItems) {
+  // =====================================
+  // CALCULAR MELHOR PROMOÇÃO
+  // =====================================
+
+  /*
+   * Promoções NÃO acumulam.
+   *
+   * Se mais de uma promoção puder ser
+   * aplicada ao produto, usamos aquela
+   * que produzir o menor preço unitário.
+   */
+
+  for (
+    const item
+    of calculatedItems
+  ) {
+
     const eligiblePromotions = [];
 
-    for (const promotion of promotions) {
-      // -------------------------
+
+    for (
+      const promotion
+      of promotions
+    ) {
+
+      // =================================
       // PROMOÇÃO POR PRODUTO
-      // -------------------------
+      // =================================
 
       if (
-        promotion.scope === "product" &&
+        promotion.scope ===
+          "product" &&
+
         promotion.product &&
-        promotion.product.toString() ===
+
+        promotion.product
+          .toString() ===
           item.product.toString() &&
+
         item.quantity >=
           promotion.minimumQuantity
       ) {
-        eligiblePromotions.push(promotion);
+
+        eligiblePromotions.push(
+          promotion
+        );
       }
 
-      // -------------------------
+
+      // =================================
       // PROMOÇÃO POR CATEGORIA
-      // -------------------------
+      // =================================
 
       if (
-        promotion.scope === "category" &&
+        promotion.scope ===
+          "category" &&
+
         promotion.category ===
           item.category
       ) {
+
+        /*
+         * Soma a quantidade de todos
+         * os produtos daquela categoria.
+         */
+
         const categoryQuantity =
           calculatedItems
+
             .filter(
               (cartItem) =>
                 cartItem.category ===
                 promotion.category
             )
+
             .reduce(
-              (total, cartItem) =>
+              (
+                total,
+                cartItem
+              ) =>
                 total +
                 cartItem.quantity,
+
               0
             );
+
 
         if (
           categoryQuantity >=
           promotion.minimumQuantity
         ) {
+
           eligiblePromotions.push(
             promotion
           );
@@ -281,28 +443,35 @@ async function calculateCart({
       }
     }
 
-    // =========================
-    // CALCULAR MELHOR PREÇO
-    // =========================
+
+    // =================================
+    // MELHOR PREÇO
+    // =================================
 
     let bestPrice =
       item.originalUnitPrice;
 
-    let bestPromotion = null;
+    let bestPromotion =
+      null;
+
 
     for (
       const promotion
       of eligiblePromotions
     ) {
+
       const promotionalPrice =
         calculatePromotionPrice(
           item.originalUnitPrice,
           promotion
         );
 
+
       if (
-        promotionalPrice < bestPrice
+        promotionalPrice <
+        bestPrice
       ) {
+
         bestPrice =
           promotionalPrice;
 
@@ -311,11 +480,25 @@ async function calculateCart({
       }
     }
 
+
+    // =================================
+    // PREÇO FINAL DO ITEM
+    // =================================
+
     item.unitPrice =
-      roundMoney(bestPrice);
+      roundMoney(
+        bestPrice
+      );
+
+
+    // =================================
+    // SNAPSHOT DA PROMOÇÃO
+    // =================================
 
     if (bestPromotion) {
+
       item.promotion = {
+
         promotionId:
           bestPromotion._id,
 
@@ -326,12 +509,18 @@ async function calculateCart({
           bestPromotion.discountType,
 
         promotionalPrice:
-          bestPromotion.promotionalPrice,
+          bestPromotion
+            .promotionalPrice,
 
         percentage:
           bestPromotion.percentage
       };
     }
+
+
+    // =================================
+    // SUBTOTAL DO ITEM
+    // =================================
 
     item.subtotal =
       roundMoney(
@@ -340,31 +529,53 @@ async function calculateCart({
       );
   }
 
-  // =========================
-  // TOTAIS DOS PRODUTOS
-  // =========================
+
+  // =====================================
+  // SUBTOTAL ORIGINAL
+  // =====================================
 
   const originalSubtotal =
     roundMoney(
+
       calculatedItems.reduce(
-        (total, item) =>
+        (
+          total,
+          item
+        ) =>
           total +
           (
             item.originalUnitPrice *
             item.quantity
           ),
+
         0
       )
     );
 
+
+  // =====================================
+  // SUBTOTAL APÓS PROMOÇÕES
+  // =====================================
+
   const subtotal =
     roundMoney(
+
       calculatedItems.reduce(
-        (total, item) =>
-          total + item.subtotal,
+        (
+          total,
+          item
+        ) =>
+          total +
+          item.subtotal,
+
         0
       )
     );
+
+
+  // =====================================
+  // DESCONTO DAS PROMOÇÕES
+  // =====================================
 
   const promotionDiscount =
     roundMoney(
@@ -372,97 +583,197 @@ async function calculateCart({
       subtotal
     );
 
-  // =========================
+
+  // =====================================
   // AJUSTES MANUAIS DO PDV
-  // =========================
+  // =====================================
 
   let manualDiscount = 0;
+
   let manualSurcharge = 0;
 
-  if (channel === "store") {
+
+  if (
+    channel === "store"
+  ) {
+
     manualDiscount =
       calculateAdjustment(
         subtotal,
         discount,
-        "discount"
+        "desconto"
       );
+
 
     manualSurcharge =
       calculateAdjustment(
         subtotal,
         surcharge,
-        "surcharge"
+        "acréscimo"
       );
   }
 
-  // Não permitir desconto maior
-  // que o subtotal.
-  if (manualDiscount > subtotal) {
-    manualDiscount = subtotal;
+
+  // =====================================
+  // LIMITE DO DESCONTO
+  // =====================================
+
+  /*
+   * Não permitimos que o desconto
+   * deixe o subtotal negativo.
+   */
+
+  if (
+    manualDiscount >
+    subtotal
+  ) {
+    manualDiscount =
+      subtotal;
   }
+
+
+  // =====================================
+  // SUBTOTAL AJUSTADO
+  // =====================================
 
   const adjustedSubtotal =
     roundMoney(
+
       subtotal -
+
       manualDiscount +
+
       manualSurcharge
     );
 
-  // =========================
-  // TAXA DE SERVIÇO
-  // =========================
+
+  // =====================================
+  // TAXA DE SERVIÇO ONLINE
+  // =====================================
 
   let serviceFee = 0;
 
+
+  /*
+   * Além do valor calculado, guardamos
+   * como a taxa foi calculada.
+   *
+   * Isso será usado para criar o
+   * snapshot dentro do Order.
+   */
+
+  let serviceFeeDetails = {
+
+    type: "fixed",
+
+    value: 0,
+
+    amount: 0
+  };
+
+
   if (
     channel === "online" &&
+
     store.onlineOrderSettings
       ?.serviceFee
       ?.enabled
   ) {
+
     const config =
       store.onlineOrderSettings
         .serviceFee;
+
+
+    const configValue =
+      Number(
+        config.value
+      );
+
+
+    // -----------------------------
+    // TAXA PERCENTUAL
+    // -----------------------------
 
     if (
       config.type ===
       "percentage"
     ) {
+
       serviceFee =
         roundMoney(
+
           subtotal *
-          (config.value / 100)
+
+          (
+            configValue /
+            100
+          )
         );
     }
 
+
+    // -----------------------------
+    // TAXA FIXA
+    // -----------------------------
+
     if (
-      config.type === "fixed"
+      config.type ===
+      "fixed"
     ) {
+
       serviceFee =
-        roundMoney(config.value);
+        roundMoney(
+          configValue
+        );
     }
+
+
+    serviceFeeDetails = {
+
+      type:
+        config.type,
+
+      value:
+        configValue,
+
+      amount:
+        serviceFee
+    };
   }
 
-  // =========================
-  // ENTREGA
-  // =========================
 
-  let calculatedDeliveryFee = 0;
+  // =====================================
+  // TAXA DE ENTREGA
+  // =====================================
 
-  if (channel === "online") {
+  let calculatedDeliveryFee =
+    0;
+
+
+  if (
+    channel === "online"
+  ) {
+
     calculatedDeliveryFee =
-      Number(deliveryFee);
+      Number(
+        deliveryFee
+      );
+
 
     if (
       !Number.isFinite(
         calculatedDeliveryFee
       ) ||
+
       calculatedDeliveryFee < 0
     ) {
+
       throw new Error(
         "Taxa de entrega inválida"
       );
     }
+
 
     calculatedDeliveryFee =
       roundMoney(
@@ -470,19 +781,30 @@ async function calculateCart({
       );
   }
 
-  // =========================
+
+  // =====================================
   // TOTAL FINAL
-  // =========================
+  // =====================================
 
   const total =
     roundMoney(
+
       adjustedSubtotal +
+
       serviceFee +
+
       calculatedDeliveryFee
     );
 
+
+  // =====================================
+  // RETORNO
+  // =====================================
+
   return {
-    store: storeId,
+
+    store:
+      storeId,
 
     channel,
 
@@ -501,7 +823,17 @@ async function calculateCart({
 
     adjustedSubtotal,
 
+    /*
+     * Mantemos serviceFee como número
+     * por compatibilidade.
+     */
     serviceFee,
+
+    /*
+     * Snapshot completo da configuração
+     * utilizada no cálculo.
+     */
+    serviceFeeDetails,
 
     deliveryFee:
       calculatedDeliveryFee,
@@ -511,69 +843,139 @@ async function calculateCart({
 }
 
 
-// ===================================
-// PREÇO DE UMA PROMOÇÃO
-// ===================================
+// =====================================
+// CALCULAR PREÇO DE UMA PROMOÇÃO
+// =====================================
 
 function calculatePromotionPrice(
   originalPrice,
   promotion
 ) {
+
+  // =====================================
+  // PREÇO FIXO PROMOCIONAL
+  // =====================================
+
   if (
     promotion.discountType ===
     "fixed_price"
   ) {
+
+    const promotionalPrice =
+      Number(
+        promotion.promotionalPrice
+      );
+
+
+    if (
+      !Number.isFinite(
+        promotionalPrice
+      ) ||
+
+      promotionalPrice < 0
+    ) {
+
+      return originalPrice;
+    }
+
+
     return roundMoney(
-      promotion.promotionalPrice
+      promotionalPrice
     );
   }
+
+
+  // =====================================
+  // DESCONTO PERCENTUAL
+  // =====================================
 
   if (
     promotion.discountType ===
     "percentage"
   ) {
+
+    const percentage =
+      Number(
+        promotion.percentage
+      );
+
+
+    if (
+      !Number.isFinite(
+        percentage
+      ) ||
+
+      percentage < 0 ||
+
+      percentage > 100
+    ) {
+
+      return originalPrice;
+    }
+
+
     return roundMoney(
+
       originalPrice *
+
       (
         1 -
-        promotion.percentage / 100
+        percentage / 100
       )
     );
   }
+
 
   return originalPrice;
 }
 
 
-// ===================================
+// =====================================
 // DESCONTO / ACRÉSCIMO MANUAL
-// ===================================
+// =====================================
 
 function calculateAdjustment(
   subtotal,
   adjustment,
   adjustmentName
 ) {
+
   if (!adjustment) {
     return 0;
   }
+
 
   const {
     type,
     value
   } = adjustment;
 
+
   const numericValue =
     Number(value);
 
+
+  // =====================================
+  // VALIDAR VALOR
+  // =====================================
+
   if (
-    !Number.isFinite(numericValue) ||
+    !Number.isFinite(
+      numericValue
+    ) ||
+
     numericValue < 0
   ) {
+
     throw new Error(
       `${adjustmentName} inválido`
     );
   }
+
+
+  // =====================================
+  // VALIDAR TIPO
+  // =====================================
 
   if (
     ![
@@ -581,25 +983,48 @@ function calculateAdjustment(
       "percentage"
     ].includes(type)
   ) {
+
     throw new Error(
       `Tipo de ${adjustmentName} inválido`
     );
   }
 
+
+  // =====================================
+  // PERCENTUAL
+  // =====================================
+
   if (
-    type === "percentage"
+    type ===
+    "percentage"
   ) {
-    if (numericValue > 100) {
+
+    if (
+      numericValue >
+      100
+    ) {
+
       throw new Error(
         `Percentual de ${adjustmentName} inválido`
       );
     }
 
+
     return roundMoney(
+
       subtotal *
-      (numericValue / 100)
+
+      (
+        numericValue /
+        100
+      )
     );
   }
+
+
+  // =====================================
+  // VALOR FIXO
+  // =====================================
 
   return roundMoney(
     numericValue
@@ -607,14 +1032,20 @@ function calculateAdjustment(
 }
 
 
-// ===================================
-// DINHEIRO
-// ===================================
+// =====================================
+// ARREDONDAMENTO MONETÁRIO
+// =====================================
 
-function roundMoney(value) {
+function roundMoney(
+  value
+) {
+
   return Number(
-    Number(value).toFixed(2)
+    Number(value)
+      .toFixed(2)
   );
 }
 
-module.exports = calculateCart;
+
+module.exports =
+  calculateCart;

@@ -1,6 +1,7 @@
 const Promotion = require("../models/promotions");
 const Store = require("../models/stores");
 const Product = require("../models/products");
+const StoreProduct = require("../models/storeProducts");
 
 module.exports.getPromotions = async (req, res, next) => {
   try {
@@ -92,6 +93,18 @@ module.exports.createPromotion = async (req, res, next) => {
           message: "Produto não encontrado"
         });
       }
+      const storeProduct =
+        await StoreProduct.findOne({
+            store: storeId,
+            product
+        });
+
+        if (!storeProduct) {
+        return res.status(400).send({
+            message:
+            "Este produto não pertence à loja selecionada"
+        });
+        }
     }
 
     if (scope === "category" && !category) {

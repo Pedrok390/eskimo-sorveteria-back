@@ -31,6 +31,12 @@ module.exports = async (req, res, next) => {
      * Aceitamos _id ou id durante
      * essa transição.
      */
+    if (payload.type !== "customer") {
+        return res.status(403).send({
+            message:
+            "Token não pertence a um cliente"
+        });
+    }
     const clientId =
       payload._id ||
       payload.id ||
@@ -46,11 +52,17 @@ module.exports = async (req, res, next) => {
     const client =
       await Client.findById(clientId);
 
+
     if (!client) {
       return res.status(401).send({
         message:
           "Cliente não encontrado"
       });
+    }
+    if (!client.active) {
+        return res.status(403).send({
+            message: "Conta do cliente desativada"
+        });
     }
 
     req.client = client;

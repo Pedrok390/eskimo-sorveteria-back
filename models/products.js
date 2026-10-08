@@ -70,7 +70,7 @@ const productSchema = new mongoose.Schema(
         "NÃO CONTÉM GLÚTEN",
         "PODE CONTER GLÚTEN"
       ],
-      default: "does_not_contain"
+      default: "NÃO CONTÉM GLÚTEN"
     },
 
     nutrition: {

@@ -1,5 +1,15 @@
+const mongoose = require("mongoose");
+
 const Order = require("../models/orders");
-const calculateCart = require("../utils/calculateCart");
+
+const StoreProduct =
+  require("../models/storeProducts");
+
+const calculateCart =
+  require("../utils/calculateCart");
+
+const moveStock =
+  require("../utils/moveStock");
 
 
 // =====================================
@@ -32,13 +42,17 @@ module.exports.getOrders = async (
       filter.status = status;
     }
 
-    const orders = await Order.find(filter)
-      .populate("store")
-      .populate("client")
-      .populate("employee", "name email")
-      .sort({
-        createdAt: -1
-      });
+    const orders =
+      await Order.find(filter)
+        .populate("store")
+        .populate("client")
+        .populate(
+          "employee",
+          "name email"
+        )
+        .sort({
+          createdAt: -1
+        });
 
     return res.send(orders);
 
@@ -58,16 +72,21 @@ module.exports.getOrderById = async (
   next
 ) => {
   try {
-    const order = await Order.findById(
-      req.params.orderId
-    )
-      .populate("store")
-      .populate("client")
-      .populate("employee", "name email");
+    const order =
+      await Order.findById(
+        req.params.orderId
+      )
+        .populate("store")
+        .populate("client")
+        .populate(
+          "employee",
+          "name email"
+        );
 
     if (!order) {
       return res.status(404).send({
-        message: "Pedido não encontrado"
+        message:
+          "Pedido não encontrado"
       });
     }
 
@@ -109,21 +128,26 @@ module.exports.createOrder = async (
       notes = ""
     } = req.body;
 
+
     // =====================================
     // VALIDAÇÕES BÁSICAS
     // =====================================
 
     if (!storeId) {
       return res.status(400).send({
-        message: "A loja é obrigatória"
+        message:
+          "A loja é obrigatória"
       });
     }
 
     if (
-      !["store", "online"].includes(channel)
+      !["store", "online"].includes(
+        channel
+      )
     ) {
       return res.status(400).send({
-        message: "Canal de venda inválido"
+        message:
+          "Canal de venda inválido"
       });
     }
 
@@ -136,6 +160,7 @@ module.exports.createOrder = async (
           "O pedido precisa ter pelo menos um produto"
       });
     }
+
 
     // =====================================
     // CLIENTE
@@ -152,6 +177,7 @@ module.exports.createOrder = async (
      * Nunca confiamos em clientId
      * enviado pelo frontend.
      */
+
     if (channel === "online") {
       if (!req.client) {
         return res.status(401).send({
@@ -160,17 +186,18 @@ module.exports.createOrder = async (
         });
       }
 
-      clientId = req.client._id;
+      clientId =
+        req.client._id;
     }
 
     /*
      * No PDV o cliente cadastrado
      * continua opcional.
      *
-     * Por enquanto não vinculamos um Client.
-     * CPF poderá ser informado normalmente
-     * para a nota fiscal.
+     * Por enquanto não vinculamos
+     * um Client.
      */
+
 
     // =====================================
     // NORMALIZAR ITENS
@@ -181,30 +208,25 @@ module.exports.createOrder = async (
      *
      * productId
      *
-     * ou o formato antigo:
+     * ou:
      *
      * product
      */
 
-    const cartItems = items.map(
-      (item) => ({
+    const cartItems =
+      items.map((item) => ({
         productId:
           item.productId ||
           item.product,
 
         quantity:
           item.quantity
-      })
-    );
+      }));
+
 
     // =====================================
     // REGRAS DO SITE
     // =====================================
-
-    /*
-     * Cliente online não pode enviar
-     * desconto ou acréscimo manual.
-     */
 
     if (
       channel === "online" &&
@@ -216,34 +238,34 @@ module.exports.createOrder = async (
       });
     }
 
+
     // =====================================
     // CALCULAR CARRINHO
     // =====================================
 
     /*
-     * O backend calcula novamente:
+     * O backend recalcula:
      *
      * preço
      * promoção
      * desconto
      * acréscimo
-     * taxa de serviço
+     * taxa
      * entrega
      * total
-     *
-     * Portanto não confiamos em valores
-     * calculados pelo frontend.
      */
 
     const calculated =
       await calculateCart({
         storeId,
-        items: cartItems,
+        items:
+          cartItems,
         channel,
         discount,
         surcharge,
         deliveryFee
       });
+
 
     // =====================================
     // PAGAMENTOS
@@ -251,24 +273,43 @@ module.exports.createOrder = async (
 
     validatePayments(
       payments,
-      calculated.total
+      calculated.total,
+      channel
     );
 
+    // =====================================
+    // NORMALIZAR PAGAMENTOS
+    // =====================================
+
+    /*
+    * PDV:
+    *
+    * Ao clicar em "Finalizar Venda",
+    * consideramos que os pagamentos
+    * já foram realizados.
+    *
+    * ONLINE:
+    *
+    * O pagamento começa pendente
+    * e será confirmado posteriormente
+    * pelo provedor de pagamento.
+    */
+
+    const normalizedPayments =
+      payments.map((payment) => ({
+        ...payment,
+
+        status:
+          channel === "store"
+            ? "approved"
+            : "pending"
+      }));
     // =====================================
     // CLIENTE - SNAPSHOT
     // =====================================
 
-    /*
-     * Para pedido online usamos os dados
-     * da conta autenticada sempre que
-     * estiverem disponíveis.
-     *
-     * O endereço continua vindo do checkout,
-     * pois pode ser um endereço específico
-     * daquela entrega.
-     */
-
-    let customerData = customer;
+    let customerData =
+      customer;
 
     if (channel === "online") {
       customerData = {
@@ -292,7 +333,10 @@ module.exports.createOrder = async (
     }
 
     const normalizedCustomer =
-      normalizeCustomer(customerData);
+      normalizeCustomer(
+        customerData
+      );
+
 
     // =====================================
     // NOTA FISCAL
@@ -304,15 +348,16 @@ module.exports.createOrder = async (
         normalizedCustomer
       );
 
+
     // =====================================
     // FUNCIONÁRIO
     // =====================================
 
     /*
-     * Venda presencial:
+     * PDV:
      * funcionário vem do JWT.
      *
-     * Pedido online:
+     * Online:
      * employee fica null.
      */
 
@@ -324,6 +369,7 @@ module.exports.createOrder = async (
             null
           )
         : null;
+
 
     // =====================================
     // ITENS DO ORDER
@@ -361,7 +407,8 @@ module.exports.createOrder = async (
                       .promotionId,
 
                   name:
-                    item.promotion.name,
+                    item.promotion
+                      .name,
 
                   discountType:
                     item.promotion
@@ -378,6 +425,7 @@ module.exports.createOrder = async (
               : undefined
         })
       );
+
 
     // =====================================
     // DESCONTO MANUAL
@@ -400,6 +448,7 @@ module.exports.createOrder = async (
         discount?.reason || ""
     };
 
+
     // =====================================
     // ACRÉSCIMO MANUAL
     // =====================================
@@ -421,100 +470,212 @@ module.exports.createOrder = async (
         surcharge?.reason || ""
     };
 
+
     // =====================================
     // TAXA DE SERVIÇO
     // =====================================
 
-    /*
-     * Por enquanto guardamos o valor
-     * calculado.
-     *
-     * Depois faremos calculateCart retornar
-     * também a configuração original
-     * (ex.: 5%) para salvar o snapshot.
-     */
-
     const serviceFee = {
-      type: "fixed",
-      value: 0,
+      type:
+        calculated
+          .serviceFeeDetails
+          ?.type ||
+        "fixed",
+
+      value:
+        calculated
+          .serviceFeeDetails
+          ?.value ||
+        0,
+
       amount:
-        calculated.serviceFee
+        calculated
+          .serviceFeeDetails
+          ?.amount ||
+        0
     };
 
+
     // =====================================
-    // CRIAR ORDER
+    // DADOS DO ORDER
     // =====================================
 
-    const order =
-      await Order.create({
-        store:
-          storeId,
+    /*
+     * Primeiro montamos os dados.
+     *
+     * A criação no MongoDB acontecerá
+     * dentro da transaction.
+     */
 
-        channel,
+    const orderData = {
+      store:
+        storeId,
 
-        /*
-         * Online:
-         * ID obtido exclusivamente do JWT.
-         *
-         * Store:
-         * null por enquanto.
-         */
-        client:
-          clientId,
+      channel,
 
-        customer:
-          normalizedCustomer,
+      client:
+        clientId,
 
-        items:
-          orderItems,
+      customer:
+        normalizedCustomer,
 
-        originalSubtotal:
-          calculated.originalSubtotal,
+      items:
+        orderItems,
 
-        promotionDiscount:
-          calculated.promotionDiscount,
+      originalSubtotal:
+        calculated.originalSubtotal,
 
-        subtotal:
-          calculated.subtotal,
+      promotionDiscount:
+        calculated.promotionDiscount,
 
-        manualDiscount,
+      subtotal:
+        calculated.subtotal,
 
-        manualSurcharge,
+      manualDiscount,
 
-        adjustedSubtotal:
-          calculated.adjustedSubtotal,
+      manualSurcharge,
 
-        serviceFee,
+      adjustedSubtotal:
+        calculated.adjustedSubtotal,
 
-        deliveryFee:
-          calculated.deliveryFee,
+      serviceFee,
 
-        total:
-          calculated.total,
+      deliveryFee:
+        calculated.deliveryFee,
 
-        payments,
+      total:
+        calculated.total,
 
-        fiscalDocument:
-          normalizedFiscalDocument,
+      payments: normalizedPayments,
 
-        employee,
+      fiscalDocument:
+        normalizedFiscalDocument,
 
-        notes,
+      employee,
 
-        /*
-         * Online começa pendente.
-         *
-         * PDV começa confirmado.
-         */
-        status:
-          channel === "online"
-            ? "pending"
-            : "confirmed"
-      });
+      notes,
+
+      /*
+       * Online:
+       * começa pendente.
+       *
+       * PDV:
+       * começa confirmado.
+       */
+
+      status:
+        channel === "online"
+          ? "pending"
+          : "confirmed"
+    };
+
+
+    // =====================================
+    // TRANSAÇÃO
+    // =====================================
+
+    const session =
+      await mongoose.startSession();
+
+    let order;
+
+    try {
+      await session.withTransaction(
+        async () => {
+
+          // =================================
+          // CRIAR ORDER
+          // =================================
+
+          const createdOrders =
+            await Order.create(
+              [orderData],
+              {
+                session
+              }
+            );
+
+          order =
+            createdOrders[0];
+
+
+          // =================================
+          // PDV - BAIXAR ESTOQUE
+          // =================================
+
+          /*
+           * Por enquanto:
+           *
+           * STORE:
+           * baixa estoque imediatamente.
+           *
+           * ONLINE:
+           * NÃO baixa estoque aqui.
+           *
+           * Online será baixado quando
+           * o pagamento for confirmado.
+           */
+
+          if (channel === "store") {
+
+            for (
+              const item
+              of calculated.items
+            ) {
+
+              /*
+               * calculateCart precisa
+               * retornar o ID do
+               * StoreProduct.
+               */
+
+              if (!item.storeProduct) {
+                throw new Error(
+                  `StoreProduct não encontrado para ${item.name}`
+                );
+              }
+
+              await moveStock({
+                storeProductId:
+                  item.storeProduct,
+
+                type:
+                  "sale",
+
+                direction:
+                  "out",
+
+                quantity:
+                  item.quantity,
+
+                reason:
+                  `Venda ${order._id}`,
+
+                order:
+                  order._id,
+
+                employee,
+
+                session
+              });
+            }
+          }
+        }
+      );
+
+    } finally {
+      await session.endSession();
+    }
+
+
+    // =====================================
+    // RETORNAR ORDER
+    // =====================================
 
     return res
       .status(201)
       .send(order);
+
 
   } catch (error) {
     return next(error);
@@ -532,7 +693,9 @@ module.exports.updateOrderStatus = async (
   next
 ) => {
   try {
-    const { status } = req.body;
+    const {
+      status
+    } = req.body;
 
     const allowedStatuses = [
       "pending",
@@ -540,11 +703,12 @@ module.exports.updateOrderStatus = async (
       "preparing",
       "out_for_delivery",
       "completed",
-      "cancelled"
     ];
 
     if (
-      !allowedStatuses.includes(status)
+      !allowedStatuses.includes(
+        status
+      )
     ) {
       return res.status(400).send({
         message:
@@ -590,37 +754,187 @@ module.exports.cancelOrder = async (
   res,
   next
 ) => {
+
+  const session =
+    await mongoose.startSession();
+
   try {
-    const order =
-      await Order.findById(
-        req.params.orderId
-      );
 
-    if (!order) {
-      return res.status(404).send({
-        message:
-          "Pedido não encontrado"
-      });
-    }
+    let cancelledOrder;
 
-    if (
-      order.status === "cancelled"
-    ) {
-      return res.status(400).send({
-        message:
-          "Pedido já está cancelado"
-      });
-    }
 
-    order.status =
-      "cancelled";
+    // =====================================
+    // TRANSAÇÃO
+    // =====================================
 
-    await order.save();
+    await session.withTransaction(
+      async () => {
 
-    return res.send(order);
+        // =================================
+        // BUSCAR PEDIDO
+        // =================================
+
+        const order =
+          await Order.findById(
+            req.params.orderId
+          ).session(session);
+
+
+        if (!order) {
+          const error =
+            new Error(
+              "Pedido não encontrado"
+            );
+
+          error.statusCode = 404;
+
+          throw error;
+        }
+
+
+        // =================================
+        // JÁ CANCELADO
+        // =================================
+
+        if (
+          order.status ===
+          "cancelled"
+        ) {
+
+          const error =
+            new Error(
+              "Pedido já está cancelado"
+            );
+
+          error.statusCode = 400;
+
+          throw error;
+        }
+
+
+        // =================================
+        // VENDA PRESENCIAL
+        // =================================
+
+        if (
+          order.channel === "store"
+        ) {
+
+          /*
+           * Para cada produto vendido,
+           * devolvemos a quantidade
+           * ao estoque.
+           */
+
+          for (
+            const item
+            of order.items
+          ) {
+
+            /*
+             * O Order guarda Product,
+             * mas moveStock precisa do
+             * StoreProduct.
+             *
+             * Portanto precisamos localizar
+             * a relação:
+             *
+             * loja + produto
+             */
+
+            const storeProduct =
+              await StoreProduct.findOne({
+                store:
+                  order.store,
+
+                product:
+                  item.product
+              }).session(session);
+
+
+            if (!storeProduct) {
+
+              const error =
+                new Error(
+                  `Produto ${item.name} não encontrado no estoque da loja`
+                );
+
+              error.statusCode = 400;
+
+              throw error;
+            }
+
+
+            // =============================
+            // DEVOLVER ESTOQUE
+            // =============================
+
+            await moveStock({
+
+              storeProductId:
+                storeProduct._id,
+
+              type:
+                "return",
+
+              direction:
+                "in",
+
+              quantity:
+                item.quantity,
+
+              reason:
+                `Cancelamento da venda ${order._id}`,
+
+              order:
+                order._id,
+
+              employee:
+                req.user?._id ||
+                req.user?.id ||
+                null,
+
+              session
+            });
+          }
+        }
+
+
+        // =================================
+        // CANCELAR ORDER
+        // =================================
+
+        order.status =
+          "cancelled";
+
+
+        await order.save({
+          session
+        });
+
+
+        cancelledOrder =
+          order;
+      }
+    );
+
+
+    // =====================================
+    // RESPOSTA
+    // =====================================
+
+    return res.send(
+      cancelledOrder
+    );
+
 
   } catch (error) {
+
     return next(error);
+
+  } finally {
+
+    await session.endSession();
   }
 };
 
@@ -635,7 +949,10 @@ function normalizeCustomer(
   const cpf =
     customer.cpf
       ? String(customer.cpf)
-          .replace(/\D/g, "")
+          .replace(
+            /\D/g,
+            ""
+          )
       : null;
 
   return {
@@ -652,11 +969,13 @@ function normalizeCustomer(
 
     address: {
       street:
-        customer.address?.street ||
+        customer.address
+          ?.street ||
         "",
 
       number:
-        customer.address?.number ||
+        customer.address
+          ?.number ||
         "",
 
       complement:
@@ -670,11 +989,13 @@ function normalizeCustomer(
         "",
 
       city:
-        customer.address?.city ||
+        customer.address
+          ?.city ||
         "",
 
       state:
-        customer.address?.state ||
+        customer.address
+          ?.state ||
         "",
 
       zipCode:
@@ -723,9 +1044,11 @@ function normalizeFiscalDocument(
         ? customer.cpf
         : null,
 
-    issued: false,
+    issued:
+      false,
 
-    number: null
+    number:
+      null
   };
 }
 
@@ -736,7 +1059,8 @@ function normalizeFiscalDocument(
 
 function validatePayments(
   payments,
-  total
+  total,
+  channel
 ) {
   if (!Array.isArray(payments)) {
     throw new Error(
@@ -753,9 +1077,14 @@ function validatePayments(
    */
 
   if (payments.length === 0) {
+    if (channel === "store") {
+      throw new Error(
+        "Uma venda presencial precisa ter pelo menos um pagamento"
+      );
+    }
+
     return;
   }
-
   const allowedMethods = [
     "cash",
     "pix",
@@ -766,7 +1095,10 @@ function validatePayments(
 
   let paymentTotal = 0;
 
-  for (const payment of payments) {
+  for (
+    const payment
+    of payments
+  ) {
     if (
       !allowedMethods.includes(
         payment.method
@@ -778,7 +1110,9 @@ function validatePayments(
     }
 
     const amount =
-      Number(payment.amount);
+      Number(
+        payment.amount
+      );
 
     if (
       !Number.isFinite(amount) ||
@@ -789,11 +1123,14 @@ function validatePayments(
       );
     }
 
-    paymentTotal += amount;
+    paymentTotal +=
+      amount;
   }
 
   paymentTotal =
-    roundMoney(paymentTotal);
+    roundMoney(
+      paymentTotal
+    );
 
   if (
     Math.abs(
@@ -809,6 +1146,7 @@ function validatePayments(
 
 function roundMoney(value) {
   return Number(
-    Number(value).toFixed(2)
+    Number(value)
+      .toFixed(2)
   );
 }

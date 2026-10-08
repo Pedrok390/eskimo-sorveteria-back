@@ -11,6 +11,7 @@ const storesRouter = require("./routes/stores");
 const storeProductsRouter = require("./routes/storeProducts");
 const promotionsRouter = require("./routes/promotions");
 const cartRouter = require("./routes/cart");
+const stockMovementRouter = require("./routes/stockMovements");
 const app = express();
 
 app.use(
@@ -49,6 +50,7 @@ app.use("/stores", storesRouter);
 app.use("/store-products", storeProductsRouter);
 app.use("/promotions",promotionsRouter);
 app.use("/cart", cartRouter);
+app.use("/stock-movements", stockMovementRouter);
 app.use((req, res) => {
   res.status(404).send({
     message: "Rota não encontrada"
