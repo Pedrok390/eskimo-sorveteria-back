@@ -14,7 +14,16 @@ const storeSchema = new mongoose.Schema(
       trim: true,
       uppercase: true
     },
-
+    owners: {
+      type: [
+        {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "User"
+        }
+      ],
+      default: [],
+      index: true
+    },
     active: {
       type: Boolean,
       default: true

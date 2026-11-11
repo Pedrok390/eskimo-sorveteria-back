@@ -65,8 +65,7 @@ const cashSessionSchema = new mongoose.Schema(
     cashRegister: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "CashRegister",
-      required: true,
-      index: true
+      required: true
     },
 
     status: {

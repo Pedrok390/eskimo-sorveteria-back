@@ -26,6 +26,13 @@ const userSchema = new mongoose.Schema(
       default: "employee"
     },
 
+    store: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Store",
+      default: null,
+      index: true
+    },
+
     active: {
       type: Boolean,
       default: true

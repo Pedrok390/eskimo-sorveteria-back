@@ -1,4 +1,4 @@
-const CashRegister = require("../../models/cash/cashRegisters");
+const CashRegister = require("../../models/cash/cashRegister");
 const CashRegisterSettings = require("../../models/cash/cashRegisterSettings");
 const CashSession = require("../../models/cash/cashSessions");
 const calculateCashCount = require("../../utils/cash/calculateCashCount");
